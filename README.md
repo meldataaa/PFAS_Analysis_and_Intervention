@@ -11,4 +11,4 @@ We have one main table in our data warehouse that feeds our application. PFAS_Ma
 | date | Date | DATE | YYYY-MM-DD | No | Yes |
 |  parameter | name of chemical/parameter | STRING | NA | No | Yes |
 | ResultValue | numerical result of analysis | FOAT | NA | No | Yes |
-| PRI_STA_C | primary station code or state source number | STRING | NA | Yes | Yes |
+| PRI_STA_C | primary station code or state source number | STRING | NA | No | Yes |
