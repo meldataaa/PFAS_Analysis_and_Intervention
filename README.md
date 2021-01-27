@@ -4,7 +4,7 @@ PFAS Analysis and Intervention Shiny App
 
 ## Data Dictionary
 
-We have one main table in our data warehouse that feed into our application. PFAS_Main, a combination of three tables - chemical, siteloc, storet - that originate from the waterboard's database (https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/EDTlibrary.html). 
+We have one main table in our data warehouse that feeds our application. PFAS_Main, a combination of three tables - chemical, siteloc, storet - that originate from the waterboard's database (https://www.waterboards.ca.gov/drinking_water/certlic/drinkingwater/EDTlibrary.html). 
 
 | Column Name | Description | Type | Specifications | Unique | Required | Key |
 | --- | --- | --- | --- | --- | --- | --- |
