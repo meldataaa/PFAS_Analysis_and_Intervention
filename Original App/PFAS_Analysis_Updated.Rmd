@@ -1,0 +1,341 @@
+---
+title: "PFAS Analysis"
+author: Last updated by Melissa Salazar, `r format(Sys.Date(), "%B %d, %Y")`
+output: html_document
+---
+  
+  ```{r global_options, warning=FALSE, include=FALSE}
+Sys.setenv(DARKSKY_API_KEY = "8d8b3f191340dfcd65b1e32cc4525d2b")
+```
+
+```{r, include=FALSE}
+#setwd("C:/Users/msalazar/OneDrive - mnwd.com/R Home/PFAS")
+
+library(dplyr)
+library(ggplot2)
+library(reshape)
+library(Hmisc)
+library(corrplot)
+library(leaflet)
+library(magrittr)
+library(ggmap)
+library(BBmisc)
+library(gridExtra)
+library(darksky) #Dark Sky API
+library(tidyverse)
+library(plotly)
+
+stringifyVector <- function(vect){
+  if (is.character(vect)) {
+    
+    paste0("('", paste(vect, collapse = "', '"), "')")
+    
+  } else {
+    
+    paste0("(", paste(vect, collapse = ", "), ")")
+    
+  }
+}
+```
+
+```{r, echo=FALSE}
+PFAS_original <- read.csv("PFAS_all.csv", stringsAsFactors = FALSE)
+
+PFAS_original$Sample.Date<- as.Date(PFAS_original$Sample.Date, "%m/%d/%Y")
+
+Frequency<- as.data.frame(table(PFAS_original$Parameter.Abbreviation))
+
+High_obs<-Frequency %>%
+  filter(Freq==53)
+
+high<- High_obs[["Var1"]]
+
+PFAS_6 <- PFAS_original %>%
+  filter(Parameter.Abbreviation %in% high)%>%
+  filter(Sample.Date > "2016-07-26") %>%
+  select(Sample.Date, Parameter.Abbreviation,Result.Value)%>%
+  arrange(Sample.Date)
+
+PFAS_dates <- c(PFAS_6$Sample.Date)
+```
+
+```{r, include=FALSE, warning=FALSE}
+# creating a sample data.frame with your lat/lon points
+testsite<-data.frame(lat=c(33.85746227),
+                     lon=c(-117.79209184))
+
+register_google(key = "AIzaSyA7_6adSn5Aw3PFNhnfqTVkH4C9AF1k3a4")
+
+# getting the map
+testsite_map <- get_map(location = c(lon = testsite$lon, lat = testsite$lat), zoom = 10,
+                        maptype = "hybrid", size = c(640,640), scale = 2 , API_console_key = "AIzaSyA7_6adSn5Aw3PFNhnfqTVkH4C9AF1k3a4")
+```
+
+```{r, echo=FALSE}
+# plotting the map with some points on it
+ggmap(testsite_map) +
+  geom_point(data = testsite, aes(x = lon, y = lat), size = 7, shape = 7, colour = "red")
+
+leaflet() %>% addTiles() %>% 
+  addCircleMarkers(data = testsite,
+                   lat = ~lat, lng = ~lon,
+                   color = "red")
+```
+
+```{r, echo=FALSE}
+RMP_latlong <- read.csv("RMP_latlong.csv")
+
+Landfills <- read.csv("Landfills.csv")
+
+leaflet() %>% addTiles() %>% 
+  addCircleMarkers(data = RMP_latlong,
+                   lat = ~Latitude, lng = ~Longitude,
+                   label = ~RMP_latlong$ï..Facility.Name,
+                   color = "orange") %>%
+  addCircleMarkers(data = Landfills,
+                   lat = ~Latitude, lng = ~Longitude,
+                   label = ~Landfills$Facility.Name,
+                   color = "black")%>% 
+  addCircleMarkers(data = testsite,
+                   lat = ~lat, lng = ~lon,
+                   color = "red")
+```
+
+```{r, echo=FALSE}
+PFAS_concentrations<- ggplot(PFAS_6, aes(x=Sample.Date, y=Result.Value, group=Parameter.Abbreviation)) +
+  geom_line(aes(color=Parameter.Abbreviation))+
+  geom_point(aes(color=Parameter.Abbreviation)) 
+ggplotly(PFAS_concentrations)
+```
+
+```{r, echo=FALSE}
+casted_pfas<- cast(PFAS_6, Sample.Date ~ Parameter.Abbreviation, fun.aggregate = sum, value = 'Result.Value')
+```
+
+```{r, echo=FALSE}
+PFAS_corr <- cor(casted_pfas)
+round(PFAS_corr, 4)
+
+corrplot(PFAS_corr, method = "color",
+         type = "upper", 
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.col = "black", tl.srt = 90, # Text label color and rotation
+         diag = FALSE # hide correlation coefficient on the principal diagonal
+)
+```
+
+```{r, echo=FALSE}
+diffLog<- PFAS_6 %>% 
+  group_by(Parameter.Abbreviation) %>%
+  mutate(differences = as.numeric(c("0", diff(log(Result.Value)))))%>%
+  select(Sample.Date,Parameter.Abbreviation,differences) %>%
+  ungroup(Parameter.Abbreviation)
+
+casted_Differences<- cast(diffLog, Sample.Date ~ Parameter.Abbreviation, fun.aggregate = sum, value = 'differences')
+
+diffLog_plot<- ggplot(diffLog, aes(x=Sample.Date, y=differences, group=Parameter.Abbreviation)) +
+  geom_line(aes(color=Parameter.Abbreviation))+
+  geom_point(aes(color=Parameter.Abbreviation))+
+  theme(axis.text.y=element_blank())
+ggplotly(diffLog_plot)
+```
+
+
+```{r, echo=FALSE}
+rainfall <- read.csv("Site Rainfall.csv", stringsAsFactors = FALSE)
+
+rainfall$DATE<- as.Date(rainfall$DATE, "%m/%d/%Y")
+
+names(rainfall)[1] <- "STATION"
+
+rainfall_updated <- rainfall %>%
+  filter(DATE > "2016-08-04")
+
+rainfall_historical<- ggplot(rainfall_updated, aes(x=DATE, y=PRCP, group=STATION)) +
+  geom_line(aes(color=STATION))+
+  geom_point(aes(color=STATION))
+ggplotly(rainfall_historical)
+
+```
+```{r}
+rain_pfasdates <- rainfall %>%
+  filter(DATE %in% PFAS_dates)%>%
+  filter(DATE > "2016-08-04")
+
+rainfall_historical_updated<- ggplot(rain_pfasdates, aes(x=DATE, y=PRCP, group=STATION)) +
+  geom_line(aes(color=STATION))+
+  geom_point(aes(color=STATION))
+ggplotly(rainfall_historical_updated)
+```
+
+```{r, echo=FALSE}
+pfas_rainfall <- grid.arrange(nrow= 2,PFAS_concentrations,
+                              rainfall_historical)
+
+pfas_rainfall
+```
+
+
+```{r, echo=FALSE}
+combos<- combn(high, 2, simplify = TRUE)
+combos
+```
+
+```{r, echo=FALSE}
+casted_pfas$PFBS.PFHpA <- casted_pfas$PFBS / casted_pfas$PFHpA
+casted_pfas$PFBS.PFHxS <- casted_pfas$PFBS / casted_pfas$PFHxS
+casted_pfas$PFBS.PFNA <- casted_pfas$PFBS / casted_pfas$PFNA
+casted_pfas$PFBS.PFOA <- casted_pfas$PFBS / casted_pfas$PFOA
+casted_pfas$PFBS.PFOS <- casted_pfas$PFBS / casted_pfas$PFOS
+casted_pfas$PFHpA.PFHxS <- casted_pfas$PFHpA / casted_pfas$PFHxS
+casted_pfas$PFHpA.PFNA <- casted_pfas$PFHpA / casted_pfas$PFNA
+casted_pfas$PFHpA.PFOA <- casted_pfas$PFHpA / casted_pfas$PFOA
+casted_pfas$PFHpA.PFOS <- casted_pfas$PFHpA / casted_pfas$PFOS
+casted_pfas$PFHxS.PFNA <- casted_pfas$PFHxS / casted_pfas$PFNA
+casted_pfas$PFHxS.PFOA <- casted_pfas$PFHxS / casted_pfas$PFOA
+casted_pfas$PFHxS.PFOS <- casted_pfas$PFHxS / casted_pfas$PFOS
+casted_pfas$PFNA.PFOA <- casted_pfas$PFNA / casted_pfas$PFOA
+casted_pfas$PFNA.PFOS <- casted_pfas$PFNA / casted_pfas$PFOS
+casted_pfas$PFOA.PFOS <- casted_pfas$PFOA / casted_pfas$PFOS
+
+#write.csv(casted_pfas, "PFAS_Ratios.csv")
+```
+
+```{r, echo=FALSE}
+scaled_PFAS <- normalize(casted_pfas)
+```
+
+```{r, echo=FALSE}
+plotPFBS_PFHpA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFBS.PFHpA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFBS_PFHpA)
+
+```
+
+```{r, echo=FALSE}
+plotPFBS_PFHxS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFBS.PFHxS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFBS_PFHxS)
+```
+
+```{r, echo=FALSE}
+plotPFBS_PFNA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFBS.PFNA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFBS_PFNA)
+```
+
+```{r, echo=FALSE}
+plotPFBS_PFOA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFBS.PFOA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFBS_PFOA)
+```
+
+```{r, echo=FALSE}
+plotPFBS_PFOS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFBS.PFOS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFBS_PFOS)
+```
+
+```{r, echo=FALSE}
+plotPFHpA_PFHxS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHpA.PFHxS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHpA_PFHxS)
+```
+
+```{r, echo=FALSE}
+plotPFHpA_PFNA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHpA.PFNA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHpA_PFNA)
+```
+
+```{r, echo=FALSE}
+plotPFHpA_PFOA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHpA.PFOA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHpA_PFOA)
+```
+
+```{r, echo=FALSE}
+plotPFHpA_PFOS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHpA.PFOS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHpA_PFOS)
+```
+
+```{r, echo=FALSE}
+plotPFHxS_PFNA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHxS.PFNA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHxS_PFNA)
+```
+
+```{r, echo=FALSE}
+plotPFHxS_PFOA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHxS.PFOA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHxS_PFOA)
+```
+
+```{r, echo=FALSE}
+plotPFHxS_PFOS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFHxS.PFOS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFHxS_PFOS)
+```
+
+```{r, echo=FALSE}
+plotPFNA_PFOA <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFNA.PFOA)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFNA_PFOA)
+```
+
+```{r, echo=FALSE}
+plotPFNA_PFOS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFNA.PFOS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFNA_PFOS)
+```
+
+```{r, echo=FALSE}
+plotPFOA_PFOS <- ggplot(scaled_PFAS, aes(x=Sample.Date, y=PFOA.PFOS)) +
+  geom_line(aes())+
+  geom_point(aes())
+
+ggplotly(plotPFOA_PFOS)
+```
+
+```{r, echo=FALSE}
+
+Ratio_plots <- grid.arrange(nrow = 5, 
+                            plotPFBS_PFHpA, plotPFBS_PFHxS, plotPFBS_PFNA, plotPFBS_PFOA, plotPFBS_PFOS,
+                            plotPFHpA_PFHxS, plotPFHpA_PFNA, plotPFHpA_PFOA, plotPFHpA_PFOS, plotPFHxS_PFNA,
+                            plotPFHxS_PFOA, plotPFHxS_PFOS, plotPFNA_PFOA, plotPFNA_PFOS, plotPFOA_PFOS)
+
+Ratio_plots
+```
+```{r, echo=FALSE}
+#get_forecast_for(33.85746227, -117.79209184, as.Date("2016-10-18"))
+#get_forecast_for(33.85746227, -117.79209184, as.Date("2018-01-10"))
+```

@@ -37,3 +37,10 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+*PFAS-Datathon 2019/
+*Video/
+*rsconnect/
+*.secrets/
+pfas_monitoring_Q1Q2Q3Q4.xlsx
+*Submission 2021/

@@ -1,0 +1,285 @@
+---
+title: "PFAS Analysis and Intervention"
+author: Last updated by Melissa Salazar, `r format(Sys.Date(), "%B %d, %Y")`
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: readable
+    social: menu
+    source_code: embed
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(shiny)
+library(leaflet)
+library(ggplot2)
+library(plotly)#ggplotly
+library(reshape)#cast
+library(corrplot) #corrplot
+library(rsconnect)
+library(rnoaa)
+```
+
+
+Sidebar {.sidebar data-width=500}
+======================================================================
+```{r, echo=FALSE}
+    helpText("Upload a .csv of test results for one test site. Your file should have a column named   \"Parameter\", \"Date\", and \"Result.Value\".")
+
+    fileInput("file", "Choose a CSV File",  multiple = FALSE, accept = c("text/csv",
+                         "text/comma-separated-values,text/plain", ".csv"))
+    # Input: Select number of rows to display ----
+    radioButtons("disp", "Display",
+                 choices = c(Head = "head",
+                             All = "all"),
+                 selected = "head")
+    helpText("Please enter a user defined Site ID, latitude, longitude, and time frame.")
+    textInput(inputId = "siteID", label = h5("Site ID"), value = "Sacramento")
+    numericInput("lat", label = h5("Latitude"), value = 38.5816, min = -90, max = 90)
+    numericInput("long", label = h5("Longitude"), value = -121.4944, min = -180, max = 180)
+    dateRangeInput(inputId = "weather", label = "Enter the time frame in which your data covers.", format = "mm-dd-yyyy")
+    actionButton("recalc", "GO")
+    p()
+    selectInput("dataset", "Choose What Facilities You Would Like to Show:",
+                choices = c("Landfills", "RMP Facilities"))
+
+actionButton("facilities", "Show Facilities")
+```
+
+Analysis
+============================================================================
+
+Row {data-height=700}
+-----------------------------------------------------------------------
+
+### Contamination Levels
+
+```{r, echo=FALSE}
+    renderPlotly({
+    
+      req(input$file)
+      
+    df <- read.csv(input$file$datapath)
+    
+    df <- df %>%
+      mutate(Date = as.Date(Date, format = "%m/%d/%Y"))
+    
+    ggplotly(ggplot(df, aes(x=Date, y=Result.Value, group=Parameter)) +
+        geom_line(aes(color=Parameter))+
+        geom_point(aes(color=Parameter))+
+       theme(axis.text.x = element_text(angle = 90, hjust = 1),
+             axis.title.x=element_blank()
+             ))
+    
+    })
+```
+
+### Difference Log(x)
+```{r, echo=FALSE}    
+    renderPlotly({
+      
+    req(input$file)
+      
+    df <- read.csv(input$file$datapath)
+
+    diffLog<- df %>% 
+      mutate(Date = as.Date(Date, format = "%m/%d/%Y")) %>%
+      group_by(Parameter) %>%
+      mutate(Differences = as.numeric(c("0", diff(log(Result.Value)))))%>%
+      select(Date,Parameter,Differences) %>%
+      ungroup(Parameter)
+    
+    casted_Differences<- cast(diffLog, Date ~ Parameter, fun.aggregate = sum, value = 'Differences')
+      
+    ggplotly(ggplot(diffLog, aes(x=Date, y=Differences, group=Parameter)) +
+              geom_line(aes(color=Parameter))+
+              geom_point(aes(color=Parameter))+
+               theme(axis.text.x = element_text(angle = 90, hjust = 1),
+                     axis.title.x=element_blank()
+                     ))
+    
+    })
+```
+
+### Correlation Matrix
+```{r, echo=FALSE} 
+    
+    renderPlot({
+      req(input$file)
+      
+      df <- read.csv(input$file$datapath)
+      
+      casted <- cast(df, Date ~ Parameter, fun.aggregate = sum, value = 'Result.Value')
+      
+      PFAS_corr <- cor(casted)
+      round(PFAS_corr, 4)
+      
+      corrplot(PFAS_corr, method = "color",
+               type = "upper", 
+               addCoef.col = "black", # Add coefficient of correlation
+               tl.col = "black", tl.srt = 90, # Text label color and rotation
+               diag = FALSE, # hide correlation coefficient on the principal diagonal
+               mar=c(0,0,1,0)
+            )
+})
+
+```
+
+Row {data-height=700}
+-----------------------------------------------------------------------
+
+### Historical Precipitation
+```{r echo=FALSE}
+eventReactive(input$recalc, {
+  
+  userSiteID <- eventReactive(input$recalc, {
+  input$siteID
+  }, ignoreNULL = FALSE)
+  
+  theSite<- userSiteID()
+
+}, ignoreNULL = FALSE)
+  
+  renderPlotly({  
+    options(noaakey = "QVgWwfzTSBgWmHTDuOqzZvXAjxUoBxPq")
+    
+    site <- data.frame(id = input$siteID, latitude = input$lat, longitude = input$long)
+    
+    allStations<- ghcnd_stations(var = "PRCP") %>%
+      filter(last_year >= format(Sys.Date(), "%Y"))
+    
+    station <- meteo_nearby_stations(lat_lon_df = site, station_data = allStations,
+                          limit = 1, var = "PRCP", year_min = as.integer(format(Sys.Date(), "%Y")))
+    
+    stationID <- station$theSite[[1]]
+    
+    precipitation <- meteo_tidy_ghcnd(stationID, keep_flags = FALSE, var = "PRCP",
+                     date_min = input$date_range[1], date_max = input$date_range[2])
+    
+    precipitation[is.na(precipitation)] <- 0
+    
+    ggplotly(ggplot(precipitation, aes(x=date, y=prcp)) +
+            ggtitle("Site Precipitation") +
+            geom_line(color = "#0d7591")+
+            geom_point(color = "#0d7591")+
+           theme(axis.text.x = element_text(angle = 90, hjust = 1),
+                 axis.title.x=element_blank()
+                 ))
+
+})
+
+```
+
+### Forecasted Precipitation
+
+```{r}
+
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Raw Data
+```{r, echo=FALSE}
+    renderTable({
+        helpText("To see an individual Parameter, click on the Parameter in the legend of the corresponding line plot.")
+        # input$file will be NULL initially. After the user selects
+        # and uploads a file, head of that data file by default,
+        # or all rows if selected, will be shown.
+      
+        req(input$file)
+        
+        df <- read.csv(input$file$datapath)
+        
+        if(input$disp == "head") {
+          return(head(df))
+        }
+        else {
+          return(df)
+        }
+        
+      })
+```
+
+
+Possible Intervention
+============================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Map
+
+```{r, echo=FALSE}
+renderLeaflet({
+  
+  userSiteID <- eventReactive(input$recalc, {
+  input$siteID
+  }, ignoreNULL = FALSE)
+      
+  points <- eventReactive(input$recalc, {
+  cbind(input$long, input$lat)
+  }, ignoreNULL = FALSE)
+  
+  datasetInput <- eventReactive(input$facilities, {
+  
+  RMP_Facilities <- read.csv("CA RMP Facilities.csv")
+  names(RMP_Facilities)[1] <- c("Facility.Name")
+  Landfills <- read.csv("Landfills.csv")
+  
+    switch(input$dataset,
+           "Landfills" = Landfills,
+           "RMP Facilities" = RMP_Facilities)
+  }, ignoreNULL = FALSE)
+        
+    leaflet() %>%
+      addTiles() %>%
+      #addProviderTiles("Esri.WorldStreetMap",options = providerTileOptions(noWrap = TRUE)) %>%
+      addCircleMarkers(data = datasetInput(), lat = ~Latitude, lng = ~Longitude, label = ~Facility.Name, color = "black") %>%
+      addCircleMarkers(data = points(), label = userSiteID(), color = "red")
+  })
+```
+
+
+### Facilities
+
+```{r, echo=FALSE}
+  
+  renderTable({
+    
+  datasetInput <- eventReactive(input$facilities, {
+  
+  RMP_Facilities <- read.csv("CA RMP Facilities.csv")
+  names(RMP_Facilities)[1] <- c("Facility.Name")
+  Landfills <- read.csv("Landfills.csv")
+  
+    switch(input$dataset,
+           "Landfills" = Landfills,
+           "RMP Facilities" = RMP_Facilities)
+  }, ignoreNULL = FALSE)
+    datasetInput()
+  })
+```
+
+Information & Help
+============================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Background Information
+
+#### PFAS, which stands for Per- and Polyfluoroalkyl Substances, is a family of over 4,000 chemicals. PFAS are unique due to their bio-persistent characteristic. Bio-persistant meaning it takes an immense amount of energy to break down.The Unregulated Contaminant Monitoring Rule (UCMR) 3 program of 2013-2015 required drinking water to be tested for PFAS. In summary, the UCMR3 testing found many test sites with contamination levels over the required notification level. As awareness arises and monitoring becomes more consistent it would be useful, for the organizations testing for PFAS, to quickly and easily analyze their test data.
+
+### How the App is Intended to be Used
+#### In the Analysis section, upload a csv of test results for a given site in the following format. Once you have uploadad a file with the correct format the app will generate multiple visualizations for analysis. Enter the date range of your data to access weather data.
+
+```{r, echo = FALSE}
+example <- read.csv("Upload Example.csv")
+DT::datatable(example, rownames = FALSE )
+```
